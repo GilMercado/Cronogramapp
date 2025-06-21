@@ -174,3 +174,68 @@ if archivo_csv and rol_usuario == "admin":
         st.success("✅ Archivo importado correctamente.")
     except Exception as e:
         st.error(f"❌ Error al importar archivo: {e}")
+st.header("📂 Cronogramas Guardados")
+conn = sqlite3.connect("cronogramas.db")
+cursor = conn.cursor()
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cronograma';")
+table_exists = cursor.fetchone()
+
+if table_exists:
+    df_all = pd.read_sql("SELECT * FROM cronograma", conn)
+else:
+    df_all = pd.DataFrame()
+conn.close()
+
+proyectos = df_all['PROYECTO'].unique().tolist() if not df_all.empty else []
+selected_proyecto = st.selectbox("Filtrar por Proyecto", ["Todos"] + proyectos) if proyectos else "Todos"
+
+if selected_proyecto != "Todos" and not df_all.empty:
+    df_all = df_all[df_all['PROYECTO'] == selected_proyecto]
+
+if not df_all.empty:
+    fecha_min = pd.to_datetime(df_all["INICIO"]).min().date()
+    fecha_max = pd.to_datetime(df_all["FINAL"]).max().date()
+    fecha_rango = st.date_input("Filtrar por Rango de Fechas", [fecha_min, fecha_max])
+
+    if len(fecha_rango) == 2:
+        df_all = df_all[(pd.to_datetime(df_all["INICIO"]).dt.date >= fecha_rango[0]) &
+                        (pd.to_datetime(df_all["FINAL"]).dt.date <= fecha_rango[1])]
+
+    st.markdown("### ✏️ Editar Cronogramas")
+    if rol_usuario == "admin":
+        edited_df = st.data_editor(df_all, use_container_width=True, num_rows="dynamic")
+        if st.button("Guardar Cambios"):
+            edited_df["EDITADO_POR"] = usuario
+            edited_df["FECHA_CAMBIO"] = datetime.now().isoformat(timespec='seconds')
+            conn = sqlite3.connect("cronogramas.db")
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM cronograma")
+            edited_df.to_sql("cronograma", conn, if_exists="append", index=False)
+            conn.close()
+            st.success("✅ Cambios guardados correctamente en la base de datos.")
+    else:
+        st.dataframe(df_all, use_container_width=True)
+        st.info("🛈 Solo lectura. Inicia sesión como admin para editar.")
+
+    st.markdown("### 📜 Historial de Cambios")
+    if "EDITADO_POR" in df_all.columns and "FECHA_CAMBIO" in df_all.columns:
+        df_audit = df_all[["PROYECTO", "FASE", "EDITADO_POR", "FECHA_CAMBIO"]].drop_duplicates()
+        df_audit = df_audit.sort_values("FECHA_CAMBIO", ascending=False)
+        st.dataframe(df_audit, use_container_width=True)
+
+else:
+    st.info("📭 No hay cronogramas guardados aún.")
+
+st.markdown("### ⬆️ Importar Cronograma desde CSV")
+archivo_csv = st.file_uploader("Selecciona un archivo CSV para importar", type="csv")
+if archivo_csv and rol_usuario == "admin":
+    try:
+        df_import = pd.read_csv(archivo_csv)
+        df_import["EDITADO_POR"] = usuario
+        df_import["FECHA_CAMBIO"] = datetime.now().isoformat(timespec='seconds')
+        conn = sqlite3.connect("cronogramas.db")
+        df_import.to_sql("cronograma", conn, if_exists="append", index=False)
+        conn.close()
+        st.success("✅ Archivo importado correctamente.")
+    except Exception as e:
+        st.error(f"❌ Error al importar archivo: {e}"
