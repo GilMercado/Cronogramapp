@@ -1,241 +1,30 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import sqlite3
-from datetime import date, timedelta, datetime
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from fpdf import FPDF
-from io import BytesIO
+import streamlit as st import pandas as pd from openpyxl import load_workbook from datetime import date
 
-st.set_page_config(page_title="Cronograma de Producción", layout="wide")
+st.set_page_config(page_title="Actualizar Cronograma", layout="centered") st.title("🎬 Actualizador de Cronograma de Producción")
 
-# Autenticación con múltiples usuarios y roles
-usuarios = {
-    "gil": {"password": "123", "rol": "admin"},
-    "lector": {"password": "view123", "rol": "lectura"}
-}
+Cargar plantilla base
 
-usuario = st.text_input("👤 Usuario")
-password = st.text_input("🔒 Contraseña", type="password")
+ruta_excel = "tres de AcademiaOnSet_CHIPOCLES_Cronograma de producción.xlsx" wb = load_workbook(ruta_excel) ws = wb.active
 
-if usuario not in usuarios or password != usuarios[usuario]["password"]:
-    st.warning("🔐 Acceso restringido. Ingresa credenciales válidas.")
-    st.stop()
+st.markdown("Modifica la información del proyecto sin alterar el formato del archivo original.")
 
-rol_usuario = usuarios[usuario]["rol"]
+Entradas del usuario
 
-st.title("📅 Generador de Cronograma de Producción Audiovisual")
+nombre_proyecto = st.text_input("Nombre del Proyecto", value="Nuevo Proyecto") fecha_actualizacion = st.date_input("Fecha de Actualización", date.today())
 
-with st.sidebar:
-    st.header("Datos del Proyecto")
-    proyecto = st.text_input("Nombre del Proyecto", "CHIPOCLES")
-    fecha_inicio = st.date_input("Fecha de Inicio", date.today())
-    fases = [
-        ("ESCRITURA", "Cuarto de Escritura"),
-        ("SOFT SOFT PRE", "PDT & PRESUPUESTO"),
-        ("SOFT PRE", "GL"),
-        ("PREPRODUCCIÓN", None),
-        ("SHOOT", None),
-        ("WRAP", None),
-        ("POST", None)
-    ]
-    duraciones = {}
-    for fase, subfase in fases:
-        label = f"Duración de '{fase}' (días)"
-        duraciones[fase] = st.number_input(label, min_value=1, value=5)
+Fases desde fila 5 hasta fila 18 (1-indexed en Excel)
 
-if st.button("Generar Cronograma"):
-    registros = []
-    fecha_actual = fecha_inicio
-    timestamp = datetime.now().isoformat(timespec='seconds')
+inicio_filas = 5 fin_filas = 18
 
-    for i, (fase, subfase) in enumerate(fases, start=1):
-        duracion = duraciones[fase]
-        fecha_final = fecha_actual + timedelta(days=duracion - 1)
-        semanas = duracion / 7
+for fila in range(inicio_filas, fin_filas + 1): fase = ws[f"C{fila}"].value if fase: nueva_fecha_inicio = st.date_input(f"Inicio de '{fase}'", value=date.today(), key=f"ini_{fila}") nueva_fecha_fin = st.date_input(f"Fin de '{fase}'", value=date.today(), key=f"fin_{fila}") ws[f"G{fila}"] = nueva_fecha_inicio ws[f"H{fila}"] = nueva_fecha_fin
 
-        registros.append({
-            "PROYECTO": proyecto,
-            "#": i,
-            "FASE": fase,
-            "SUB-FASE": subfase if subfase else "-",
-            "INICIO": fecha_actual,
-            "FINAL": fecha_final,
-            "DÍAS": duracion,
-            "SEMANAS": round(semanas, 2),
-            "EDITADO_POR": usuario,
-            "FECHA_CAMBIO": timestamp
-        })
+Celda para actualizar la fecha general del cronograma
 
-        fecha_actual = fecha_final + timedelta(days=1)
+ws["E2"] = f"FECHA DE ACTUALIZACIÓN: {fecha_actualizacion.strftime('%d.%m.%y')}" ws["B1"] = nombre_proyecto
 
-    df = pd.DataFrame(registros)
-    st.subheader("📄 Cronograma Generado")
-    st.dataframe(df, use_container_width=True)
+Guardar archivo actualizado
 
-    st.subheader("📊 Visualización Gantt")
-    fig = px.timeline(
-        df,
-        x_start="INICIO",
-        x_end="FINAL",
-        y="FASE",
-        color="FASE",
-        title=f"Cronograma del Proyecto: {proyecto}"
-    )
-    fig.update_yaxes(autorange="reversed")
-    st.plotly_chart(fig, use_container_width=True)
+nombre_salida = f"cronograma_actualizado_{nombre_proyecto}.xlsx" wb.save(nombre_salida)
 
-    conn = sqlite3.connect("cronogramas.db")
-    df.to_sql("cronograma", conn, if_exists="append", index=False)
-    conn.close()
-    st.success("✅ Cronograma guardado en la base de datos.")
+st.success("✅ Archivo actualizado correctamente.") st.download_button("📥 Descargar archivo Excel actualizado", data=open(nombre_salida, "rb").read(), file_name=nombre_salida)
 
-    try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name("google-credentials.json", scope)
-        client = gspread.authorize(creds)
-        sheet = client.open("Cronogramas_Produccion").sheet1
-        sheet.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
-        st.success("✅ Cronograma exportado a Google Sheets.")
-    except Exception as e:
-        st.warning(f"⚠️ Error exportando a Google Sheets: {e}")
-
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Descargar como CSV", csv, f"cronograma_{proyecto}.csv", "text/csv")
-
-    def export_pdf(dataframe):
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=f"Cronograma: {proyecto}", ln=1, align="C")
-        pdf.ln(5)
-        for i, row in dataframe.iterrows():
-            linea = f"{row['FASE']}: {row['INICIO']} - {row['FINAL']} ({row['DÍAS']} días)"
-            pdf.cell(200, 10, txt=linea, ln=1)
-        buffer = BytesIO()
-        pdf.output(buffer)
-        return buffer
-
-    pdf_buffer = export_pdf(df)
-    st.download_button("📄 Descargar como PDF", data=pdf_buffer.getvalue(), file_name=f"cronograma_{proyecto}.pdf", mime="application/pdf")
-
-st.header("📂 Cronogramas Guardados")
-conn = sqlite3.connect("cronogramas.db")
-df_all = pd.read_sql("SELECT * FROM cronograma", conn)
-conn.close()
-
-proyectos = df_all['PROYECTO'].unique().tolist()
-selected_proyecto = st.selectbox("Filtrar por Proyecto", ["Todos"] + proyectos)
-
-if selected_proyecto != "Todos":
-    df_all = df_all[df_all['PROYECTO'] == selected_proyecto]
-
-fecha_min = pd.to_datetime(df_all["INICIO"]).min().date()
-fecha_max = pd.to_datetime(df_all["FINAL"]).max().date()
-fecha_rango = st.date_input("Filtrar por Rango de Fechas", [fecha_min, fecha_max])
-
-if len(fecha_rango) == 2:
-    df_all = df_all[(pd.to_datetime(df_all["INICIO"]).dt.date >= fecha_rango[0]) &
-                    (pd.to_datetime(df_all["FINAL"]).dt.date <= fecha_rango[1])]
-
-st.markdown("### ✏️ Editar Cronogramas")
-if rol_usuario == "admin":
-    edited_df = st.data_editor(df_all, use_container_width=True, num_rows="dynamic")
-    if st.button("Guardar Cambios"):
-        edited_df["EDITADO_POR"] = usuario
-        edited_df["FECHA_CAMBIO"] = datetime.now().isoformat(timespec='seconds')
-        conn = sqlite3.connect("cronogramas.db")
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM cronograma")
-        edited_df.to_sql("cronograma", conn, if_exists="append", index=False)
-        conn.close()
-        st.success("✅ Cambios guardados correctamente en la base de datos.")
-else:
-    st.dataframe(df_all, use_container_width=True)
-    st.info("🛈 Solo lectura. Inicia sesión como admin para editar.")
-
-st.markdown("### 📜 Historial de Cambios")
-if "EDITADO_POR" in df_all.columns and "FECHA_CAMBIO" in df_all.columns:
-    df_audit = df_all[["PROYECTO", "FASE", "EDITADO_POR", "FECHA_CAMBIO"]].drop_duplicates()
-    df_audit = df_audit.sort_values("FECHA_CAMBIO", ascending=False)
-    st.dataframe(df_audit, use_container_width=True)
-
-st.markdown("### ⬆️ Importar Cronograma desde CSV")
-archivo_csv = st.file_uploader("Selecciona un archivo CSV para importar", type="csv")
-if archivo_csv and rol_usuario == "admin":
-    try:
-        df_import = pd.read_csv(archivo_csv)
-        df_import["EDITADO_POR"] = usuario
-        df_import["FECHA_CAMBIO"] = datetime.now().isoformat(timespec='seconds')
-        conn = sqlite3.connect("cronogramas.db")
-        df_import.to_sql("cronograma", conn, if_exists="append", index=False)
-        conn.close()
-        st.success("✅ Archivo importado correctamente.")
-    except Exception as e:
-        st.error(f"❌ Error al importar archivo: {e}")
-st.header("📂 Cronogramas Guardados")
-conn = sqlite3.connect("cronogramas.db")
-cursor = conn.cursor()
-cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cronograma';")
-table_exists = cursor.fetchone()
-
-if table_exists:
-    df_all = pd.read_sql("SELECT * FROM cronograma", conn)
-else:
-    df_all = pd.DataFrame()
-conn.close()
-
-proyectos = df_all['PROYECTO'].unique().tolist() if not df_all.empty else []
-selected_proyecto = st.selectbox("Filtrar por Proyecto", ["Todos"] + proyectos) if proyectos else "Todos"
-
-if selected_proyecto != "Todos" and not df_all.empty:
-    df_all = df_all[df_all['PROYECTO'] == selected_proyecto]
-
-if not df_all.empty:
-    fecha_min = pd.to_datetime(df_all["INICIO"]).min().date()
-    fecha_max = pd.to_datetime(df_all["FINAL"]).max().date()
-    fecha_rango = st.date_input("Filtrar por Rango de Fechas", [fecha_min, fecha_max])
-
-    if len(fecha_rango) == 2:
-        df_all = df_all[(pd.to_datetime(df_all["INICIO"]).dt.date >= fecha_rango[0]) &
-                        (pd.to_datetime(df_all["FINAL"]).dt.date <= fecha_rango[1])]
-
-    st.markdown("### ✏️ Editar Cronogramas")
-    if rol_usuario == "admin":
-        edited_df = st.data_editor(df_all, use_container_width=True, num_rows="dynamic")
-        if st.button("Guardar Cambios"):
-            edited_df["EDITADO_POR"] = usuario
-            edited_df["FECHA_CAMBIO"] = datetime.now().isoformat(timespec='seconds')
-            conn = sqlite3.connect("cronogramas.db")
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM cronograma")
-            edited_df.to_sql("cronograma", conn, if_exists="append", index=False)
-            conn.close()
-            st.success("✅ Cambios guardados correctamente en la base de datos.")
-    else:
-        st.dataframe(df_all, use_container_width=True)
-        st.info("🛈 Solo lectura. Inicia sesión como admin para editar.")
-
-    st.markdown("### 📜 Historial de Cambios")
-    if "EDITADO_POR" in df_all.columns and "FECHA_CAMBIO" in df_all.columns:
-        df_audit = df_all[["PROYECTO", "FASE", "EDITADO_POR", "FECHA_CAMBIO"]].drop_duplicates()
-        df_audit = df_audit.sort_values("FECHA_CAMBIO", ascending=False)
-        st.dataframe(df_audit, use_container_width=True)
-
-else:
-    st.info("📭 No hay cronogramas guardados aún.")
-
-st.markdown("### ⬆️ Importar Cronograma desde CSV")
-archivo_csv = st.file_uploader("Selecciona un archivo CSV para importar", type="csv")
-if archivo_csv and rol_usuario == "admin":
-    try:
-        df_import = pd.read_csv(archivo_csv)
-        df_import["EDITADO_POR"] = usuario
-        df_import["FECHA_CAMBIO"] = datetime.now().isoformat(timespec='seconds')
-        conn = sqlite3.connect("cronogramas.db")
-        df_import.to_sql("cronograma", conn, if_exists="append", index=False)
-        conn.close()
-        st.success("✅ Archivo importado correctamente.")
-    except Exception as e:
-        st.error(f"❌ Error al importar archivo: {e}")
