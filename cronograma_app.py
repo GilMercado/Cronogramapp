@@ -238,4 +238,4 @@ if archivo_csv and rol_usuario == "admin":
         conn.close()
         st.success("✅ Archivo importado correctamente.")
     except Exception as e:
-        st.error(f"❌ Error al importar archivo: {e}"
+        st.error(f"❌ Error al importar archivo: {e}")
