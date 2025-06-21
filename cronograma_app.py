@@ -1,7 +1,4 @@
-
-# El código real se recuperará desde el canvas manualmente (proceso completado antes del reset)
-# Asegúrate de pegar el contenido completo de cronograma_app.py aquí antes de desplegar.
-print(import streamlit as st
+import streamlit as st
 import pandas as pd
 import plotly.express as px
 import sqlite3
@@ -77,7 +74,6 @@ if st.button("Generar Cronograma"):
     st.subheader("📄 Cronograma Generado")
     st.dataframe(df, use_container_width=True)
 
-    # Gantt chart
     st.subheader("📊 Visualización Gantt")
     fig = px.timeline(
         df,
@@ -90,13 +86,11 @@ if st.button("Generar Cronograma"):
     fig.update_yaxes(autorange="reversed")
     st.plotly_chart(fig, use_container_width=True)
 
-    # Save to SQLite database
     conn = sqlite3.connect("cronogramas.db")
     df.to_sql("cronograma", conn, if_exists="append", index=False)
     conn.close()
     st.success("✅ Cronograma guardado en la base de datos.")
 
-    # Save to Google Sheets
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name("google-credentials.json", scope)
@@ -107,11 +101,9 @@ if st.button("Generar Cronograma"):
     except Exception as e:
         st.warning(f"⚠️ Error exportando a Google Sheets: {e}")
 
-    # CSV download
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button("📥 Descargar como CSV", csv, f"cronograma_{proyecto}.csv", "text/csv")
 
-    # PDF export
     def export_pdf(dataframe):
         pdf = FPDF()
         pdf.add_page()
@@ -128,13 +120,11 @@ if st.button("Generar Cronograma"):
     pdf_buffer = export_pdf(df)
     st.download_button("📄 Descargar como PDF", data=pdf_buffer.getvalue(), file_name=f"cronograma_{proyecto}.pdf", mime="application/pdf")
 
-# Vista de todos los cronogramas guardados
 st.header("📂 Cronogramas Guardados")
 conn = sqlite3.connect("cronogramas.db")
 df_all = pd.read_sql("SELECT * FROM cronograma", conn)
 conn.close()
 
-# Filtros
 proyectos = df_all['PROYECTO'].unique().tolist()
 selected_proyecto = st.selectbox("Filtrar por Proyecto", ["Todos"] + proyectos)
 
@@ -149,7 +139,6 @@ if len(fecha_rango) == 2:
     df_all = df_all[(pd.to_datetime(df_all["INICIO"]).dt.date >= fecha_rango[0]) &
                     (pd.to_datetime(df_all["FINAL"]).dt.date <= fecha_rango[1])]
 
-# Edición directa
 st.markdown("### ✏️ Editar Cronogramas")
 if rol_usuario == "admin":
     edited_df = st.data_editor(df_all, use_container_width=True, num_rows="dynamic")
@@ -166,14 +155,12 @@ else:
     st.dataframe(df_all, use_container_width=True)
     st.info("🛈 Solo lectura. Inicia sesión como admin para editar.")
 
-# Log de auditoría
 st.markdown("### 📜 Historial de Cambios")
 if "EDITADO_POR" in df_all.columns and "FECHA_CAMBIO" in df_all.columns:
     df_audit = df_all[["PROYECTO", "FASE", "EDITADO_POR", "FECHA_CAMBIO"]].drop_duplicates()
     df_audit = df_audit.sort_values("FECHA_CAMBIO", ascending=False)
     st.dataframe(df_audit, use_container_width=True)
 
-# Importar cronogramas desde CSV
 st.markdown("### ⬆️ Importar Cronograma desde CSV")
 archivo_csv = st.file_uploader("Selecciona un archivo CSV para importar", type="csv")
 if archivo_csv and rol_usuario == "admin":
@@ -187,26 +174,3 @@ if archivo_csv and rol_usuario == "admin":
         st.success("✅ Archivo importado correctamente.")
     except Exception as e:
         st.error(f"❌ Error al importar archivo: {e}")
-
-
-Re-fetch app content manually without canmore module due to kernel reset
-
-app_code = """
-
-El código real se recuperará desde el canvas manualmente (proceso completado antes del reset)
-
-Asegúrate de pegar el contenido completo de cronograma_app.py aquí antes de desplegar.
-
-print("CÓDIGO DE APP AQUÍ") """
-
-Write fallback placeholder
-
-(project_dir / "cronograma_app.py").write_text(app_code)
-
-Recreate zip with fallback
-
-with zipfile.ZipFile(zip_path, "w") as zipf: for file in project_dir.glob("*"): zipf.write(file, arcname=file.name)
-
-zip_path.name
-
-)
